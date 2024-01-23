@@ -2,7 +2,7 @@
 /*
 Plugin Name: Disk Space Usage with Limit and Restrictions
 Description: Displays, limits, and restricts the disk space used by the WordPress installation.
-Version: 1.0
+Version: 1.1
 Author: riotrequest
 */
 
@@ -66,6 +66,15 @@ function prevent_upload_if_limit_reached($file) {
         $file['error'] = 'Disk space limit reached. Cannot upload new files.';
     }
     return $file;
+}
+
+// Hook to intercept plugin installation
+add_filter('upgrader_pre_install', 'prevent_plugin_install_if_limit_reached', 10, 2);
+function prevent_plugin_install_if_limit_reached($true, $hook_extra) {
+    if (isset($hook_extra['plugin']) && is_disk_space_limit_reached()) {
+        return new WP_Error('disk_space_error', 'Disk space limit reached. Cannot install new plugins.');
+    }
+    return $true;
 }
 
 // Hook to intercept post creation
