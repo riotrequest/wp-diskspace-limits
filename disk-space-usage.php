@@ -2,7 +2,7 @@
 /*
 Plugin Name: Disk Space Usage with Limit and Restrictions
 Description: Displays, limits, and restricts the disk space used by the WordPress installation.
-Version: 1.1
+Version: 1.2
 Author: riotrequest
 */
 
@@ -13,7 +13,7 @@ define('DISK_SPACE_LIMIT', 700);
 function calculate_disk_space_usage() {
     $root_path = ABSPATH; // ABSPATH is the WordPress root directory
     $total_size = 0;
-    
+
     $files = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root_path), 
         RecursiveIteratorIterator::CHILD_FIRST
@@ -26,6 +26,21 @@ function calculate_disk_space_usage() {
     }
 
     return round($total_size / 1024 / 1024, 2); // size in MB
+}
+
+// Function to get disk space usage with caching
+function get_disk_space_usage() {
+    $disk_usage = get_transient('disk_space_usage');
+    if ($disk_usage === false) {
+        $disk_usage = calculate_disk_space_usage();
+        set_transient('disk_space_usage', $disk_usage, 3600); // Cache for 1 hour
+    }
+    return $disk_usage;
+}
+
+// Function to clear disk space usage transient
+function clear_disk_space_usage_transient() {
+    delete_transient('disk_space_usage');
 }
 
 // Hook into the WordPress dashboard setup
@@ -42,7 +57,7 @@ function add_disk_space_dashboard_widget() {
 
 // Function to display the disk space usage and limit
 function display_disk_space_usage_with_limit() {
-    $disk_usage = calculate_disk_space_usage();
+    $disk_usage = get_disk_space_usage();
     $disk_limit = DISK_SPACE_LIMIT;
 
     echo "<p>Total Disk Space Used: <strong>{$disk_usage} MB</strong></p>";
@@ -55,7 +70,7 @@ function display_disk_space_usage_with_limit() {
 
 // Function to check if the disk space limit has been reached
 function is_disk_space_limit_reached() {
-    $current_usage = calculate_disk_space_usage();
+    $current_usage = get_disk_space_usage();
     return $current_usage >= DISK_SPACE_LIMIT;
 }
 
@@ -64,6 +79,8 @@ add_filter('wp_handle_upload_prefilter', 'prevent_upload_if_limit_reached');
 function prevent_upload_if_limit_reached($file) {
     if (is_disk_space_limit_reached()) {
         $file['error'] = 'Disk space limit reached. Cannot upload new files.';
+    } else {
+        clear_disk_space_usage_transient();
     }
     return $file;
 }
@@ -74,6 +91,7 @@ function prevent_plugin_install_if_limit_reached($true, $hook_extra) {
     if (isset($hook_extra['plugin']) && is_disk_space_limit_reached()) {
         return new WP_Error('disk_space_error', 'Disk space limit reached. Cannot install new plugins.');
     }
+    clear_disk_space_usage_transient();
     return $true;
 }
 
@@ -83,6 +101,8 @@ function prevent_post_creation_if_limit_reached($data, $postarr) {
     if (is_disk_space_limit_reached() && $data['post_status'] == 'publish') {
         $data['post_status'] = 'draft';
         add_filter('redirect_post_location', 'add_notice_query_var', 99);
+    } else {
+        clear_disk_space_usage_transient();
     }
     return $data;
 }
@@ -100,3 +120,12 @@ function disk_space_limit_admin_notice() {
         echo '<div class="notice notice-error"><p>Disk space limit reached. Post saved as a draft.</p></div>';
     }
 }
+
+// Hooks to clear transient on various actions
+add_action('delete_attachment', 'clear_disk_space_usage_transient');
+add_action('add_attachment', 'clear_disk_space_usage_transient');
+add_action('wp_delete_file', 'clear_disk_space_usage_transient');
+add_action('upgrader_process_complete', 'clear_disk_space_usage_transient', 10, 2);
+add_action('deleted_plugin', 'clear_disk_space_usage_transient');
+add_action('activated_plugin', 'clear_disk_space_usage_transient');
+add_action('deactivated_plugin', 'clear_disk_space_usage_transient');
